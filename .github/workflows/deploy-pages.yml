@@ -1,4 +1,4 @@
-name: Build and Deploy to GitHub Pages
+name: Deploy Static Site
 
 on:
   push:
@@ -10,58 +10,17 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: pages-deploy
-  cancel-in-progress: true
-
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
-    environment: github-pages
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          submodules: false
-
-      - name: Set up Node.js (optional, for projects with package.json)
-        if: fileExists('package.json')
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-
-      - name: Install dependencies and build (Node)
-        if: fileExists('package.json')
-        run: |
-          npm ci
-          if npm run | grep -q ' build'; then
-            npm run build
-          fi
-        env:
-          CI: true
-
-      - name: Prepare deploy directory
-        run: |
-          if [ -d "./build" ]; then
-            mkdir -p ./gh-pages-out && cp -a ./build/. ./gh-pages-out/
-          elif [ -d "./dist" ]; then
-            mkdir -p ./gh-pages-out && cp -a ./dist/. ./gh-pages-out/
-          elif [ -d "./public" ]; then
-            mkdir -p ./gh-pages-out && cp -a ./public/. ./gh-pages-out/
-          else
-            mkdir -p ./gh-pages-out && rsync -a --exclude='.git' --exclude='.github' ./ ./gh-pages-out/
-          fi
-
-      - name: Upload artifact for GitHub Pages
-        uses: actions/upload-pages-artifact@v1
-        with:
-          path: ./gh-pages-out
+          path: .
 
       - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v1
-
-      - name: Show deployed URL
-        run: |
-          echo "Deployed to:"
-          echo "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+        uses: actions/deploy-pages@v4
