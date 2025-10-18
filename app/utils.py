@@ -1,9 +1,13 @@
-import openai
-import base64
 import os
+import openai
+from github import Github
+import requests
 
 openai.api_key = os.environ.get("OPENAI_API_KEY")
 
+# -----------------------------
+# Step 2: LLM App Generator
+# -----------------------------
 def generate_app_from_brief(brief, attachments=[]):
     """
     Generates minimal HTML/CSS/JS app using LLM.
@@ -11,8 +15,7 @@ def generate_app_from_brief(brief, attachments=[]):
     """
     attachment_text = ""
     for a in attachments:
-        if a["url"].startswith("data:text") or a["url"].startswith("data:image"):
-            attachment_text += f"\nAttachment: {a['name']} (encoded content included)\n"
+        attachment_text += f"\nAttachment: {a['name']} (encoded content included)\n"
 
     prompt = f"""
 You are an expert web developer.
@@ -40,5 +43,41 @@ Do not include explanations outside JSON.
         data = json.loads(text)
         return data.get("files", [])
     except:
-        # fallback
         return [{"path": "index.html", "content": f"<html><body><h1>{brief}</h1></body></html>"}]
+
+# -----------------------------
+# Step 3: Push to GitHub
+# -----------------------------
+def push_files_to_github(repo_name, files, commit_msg="Update app"):
+    g = Github(os.environ["GITHUB_TOKEN"])
+    user = g.get_user()
+    
+    try:
+        repo = user.get_repo(repo_name)
+    except:
+        repo = user.create_repo(repo_name, private=False, license_template="mit")
+
+    for file in files:
+        path = file["path"]
+        content = file["content"]
+        try:
+            existing = repo.get_contents(path)
+            repo.update_file(existing.path, commit_msg, content, existing.sha)
+        except:
+            repo.create_file(path, commit_msg, content)
+    
+    return repo.html_url, repo.get_commits()[0].sha
+
+# -----------------------------
+# Optional: Verify secret
+# -----------------------------
+def verify_secret(secret):
+    return secret == os.environ.get("SECRET_KEY")
+
+# -----------------------------
+# Optional: POST to evaluation API
+# -----------------------------
+def post_evaluation(payload):
+    url = os.environ.get("EVALUATION_API")
+    headers = {"Content-Type": "application/json"}
+    requests.post(url, json=payload, timeout=10)
