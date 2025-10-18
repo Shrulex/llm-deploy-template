@@ -1,0 +1,5 @@
+flask
+requests
+pygithub
+python-dotenv
+openai    # or your LLM SDK
