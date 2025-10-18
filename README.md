@@ -76,7 +76,6 @@ When a JSON task request is received, the LLM generates an app that:
 ## 💡 Testing URL Parameter
 
 Append `?url=...` to check parameter passing, for example:
-https://github.com/Shrulex/llm-deploy-template/?url=https://example.com/image.png
 
 
 ---
