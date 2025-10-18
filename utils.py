@@ -1,83 +1,91 @@
+# utils.py
 import os
 import openai
 from github import Github
 import requests
 
-openai.api_key = os.environ.get("OPENAI_API_KEY")
+# Load environment variables
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+SECRET_KEY = os.getenv("SECRET_KEY")
+EVALUATION_API = os.getenv("EVALUATION_API")
 
-# -----------------------------
-# Step 2: LLM App Generator
-# -----------------------------
-def generate_app_from_brief(brief, attachments=[]):
-    """
-    Generates minimal HTML/CSS/JS app using LLM.
-    attachments: list of {"name": ..., "url": ...} (data URI)
-    """
-    attachment_text = ""
-    for a in attachments:
-        attachment_text += f"\nAttachment: {a['name']} (encoded content included)\n"
+openai.api_key = OPENAI_API_KEY
 
-    prompt = f"""
-You are an expert web developer.
-Create a minimal HTML/CSS/JS app that fulfills the following brief:
-{brief}
-Include attachments as embedded data if needed.
-Output a ZIP-style structure as JSON like:
-{{
-  "files": [
-    {{"path": "index.html", "content": "..."}},
-    {{"path": "README.md", "content": "..."}}
-  ]
-}}
-Do not include explanations outside JSON.
-"""
-    resp = openai.ChatCompletion.create(
-        model="gpt-4-32k",
-        messages=[{"role": "user", "content": prompt}],
+
+# ------------- Step 1: Verify Secret ----------------
+def verify_secret(secret):
+    return secret == SECRET_KEY
+
+
+# ------------- Step 2: Generate App from Brief -------------
+def generate_app_from_brief(brief, attachments):
+    """
+    Generates code (HTML/JS/etc.) from the task brief using OpenAI's new API
+    Returns a dict of filenames -> file contents
+    """
+    response = openai.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant that writes complete web apps."},
+            {"role": "user", "content": brief}
+        ],
         temperature=0
     )
-    text = resp.choices[0].message.content
 
-    import json
-    try:
-        data = json.loads(text)
-        return data.get("files", [])
-    except:
-        return [{"path": "index.html", "content": f"<html><body><h1>{brief}</h1></body></html>"}]
+    code = response.choices[0].message.content
 
-# -----------------------------
-# Step 3: Push to GitHub
-# -----------------------------
-def push_files_to_github(repo_name, files, commit_msg="Update app"):
-    g = Github(os.environ["GITHUB_TOKEN"])
+    # For simplicity, we will save everything in index.html for now
+    files = {"index.html": code}
+
+    # If attachments exist, you could decode and add them here
+    for attachment in attachments:
+        name = attachment["name"]
+        url = attachment["url"]
+        if url.startswith("data:"):
+            import base64
+            data = url.split(",")[1]
+            files[name] = base64.b64decode(data).decode("utf-8")
+
+    return files
+
+
+# ------------- Step 3: Push Files to GitHub -------------
+def push_files_to_github(repo_name, files, commit_message):
+    """
+    Creates repo (or uses existing), pushes files, returns (repo_url, commit_sha)
+    """
+    g = Github(GITHUB_TOKEN)
+
+    # Check if repo exists, otherwise create
     user = g.get_user()
-    
     try:
         repo = user.get_repo(repo_name)
     except:
-        repo = user.create_repo(repo_name, private=False, license_template="mit")
+        repo = user.create_repo(repo_name, private=False)
 
-    for file in files:
-        path = file["path"]
-        content = file["content"]
+    # Push files
+    commit_sha = None
+    for filename, content in files.items():
         try:
-            existing = repo.get_contents(path)
-            repo.update_file(existing.path, commit_msg, content, existing.sha)
+            file = repo.get_contents(filename)
+            repo.update_file(filename, commit_message, content, file.sha)
         except:
-            repo.create_file(path, commit_msg, content)
-    
-    return repo.html_url, repo.get_commits()[0].sha
+            file = repo.create_file(filename, commit_message, content)
+        commit_sha = file.sha
 
-# -----------------------------
-# Optional: Verify secret
-# -----------------------------
-def verify_secret(secret):
-    return secret == os.environ.get("SECRET_KEY")
+    repo_url = repo.html_url
+    return repo_url, commit_sha
 
-# -----------------------------
-# Optional: POST to evaluation API
-# -----------------------------
+
+# ------------- Step 4: POST to Evaluation API -------------
 def post_evaluation(payload):
-    url = os.environ.get("EVALUATION_API")
+    """
+    Sends the payload to instructor's evaluation API
+    """
     headers = {"Content-Type": "application/json"}
-    requests.post(url, json=payload, timeout=10)
+    try:
+        resp = requests.post(EVALUATION_API, json=payload, headers=headers)
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"Error posting evaluation: {e}")
